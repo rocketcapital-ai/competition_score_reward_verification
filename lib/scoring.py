@@ -161,18 +161,20 @@ def compute_competition_pool(challenge_number: int, num_predictors: int) -> Deci
     return scorer.compute_competition_pool(num_predictors)
 
 
-def compute_stake_pool(challenge_number: int, num_stakers: int) -> Decimal:
+def compute_stake_pool(challenge_number: int, num_predictors: int, num_stakers: int) -> Decimal:
     """ computes the pool to pay stake rewards for a given challenge
 
     :param challenge_number: int
         the challenge number
+    :param num_predictors: int
+        the total number of participants sending predictions at the previous challenge
     :param num_stakers: int
         the total number of stakers at the previous challenge
     :return: Decimal
         the stake pool
     """
     scorer = Scorer.get(challenge_number)
-    return scorer.compute_stake_pool(num_stakers)
+    return scorer.compute_stake_pool(num_predictors, num_stakers)
 
 
 def compute_pool_surplus(challenge_number: int, num_predictors: int, num_stakers: int) -> Decimal:
@@ -235,7 +237,7 @@ class Scorer (ABC):
         pass
 
     @abstractmethod
-    def compute_stake_pool(self, num_stakers: int) -> Decimal:
+    def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
         pass
 
     @abstractmethod
@@ -253,8 +255,10 @@ class Scorer (ABC):
         """
         if challenge_number < 0:
             raise LookupError()
-
-        return Scorer1()
+        elif challenge_number < 5:
+            return ScorerFrom1To4()
+        else:
+            return ScorerFrom5()
 
 
 class Scorer1 (Scorer):
@@ -318,21 +322,40 @@ class Scorer1 (Scorer):
         return Scorer1.__distribute(stakes, stake_pool)
 
     def compute_challenge_pool(self, num_predictors: int) -> Decimal:
-        return Scorer1.UNIT_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC * num_predictors
+        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC
+        pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC * num_predictors
+        return min(pool, max_pool)
 
     def compute_competition_pool(self, num_predictors: int) -> Decimal:
-        return Scorer1.UNIT_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC * num_predictors
-
-    def compute_stake_pool(self, num_stakers: int) -> Decimal:
-        return Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_stakers
+        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC
+        pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC * num_predictors
+        return min(pool, max_pool)
 
     def compute_pool_surplus(self, num_predictors: int, num_stakers: int) -> Decimal:
         return Scorer1.TOTAL_WEEKLY_POOL - (self.compute_challenge_pool(num_predictors) +
                                             self.compute_competition_pool(num_predictors) +
-                                            self.compute_stake_pool(num_stakers))
+                                            self.compute_stake_pool(num_predictors, num_stakers))
 
     @staticmethod
     def __distribute(factors: [Decimal], pool: Decimal) -> [Decimal]:
         total = sum(factors)
         return [((pool * factor) / total).quantize(Decimal(Scorer.REWARD_PRECISION), rounding=ROUND_DOWN).normalize()
                 for factor in factors]
+
+
+class ScorerFrom1To4 (Scorer1):
+    """valid from challenge 1 to challenge 4"""
+
+    def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
+        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
+        pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_stakers
+        return min(pool, max_pool)
+
+
+class ScorerFrom5 (Scorer1):
+    """valid from challenge 1 to challenge 4"""
+
+    def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
+        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
+        pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_predictors
+        return min(pool, max_pool)

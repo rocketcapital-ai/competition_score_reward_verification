@@ -5,6 +5,7 @@ import scipy.stats.mstats as mstats
 CHALLENGE_1 = 1
 CHALLENGE_4 = 4
 CHALLENGE_5 = 5
+CHALLENGE_6 = 6
 
 
 class Test(TestCase):
@@ -139,6 +140,11 @@ class Test(TestCase):
         challenge_rewards = compute_challenge_rewards(CHALLENGE_1, challenge_scores, challenge_pool)
         self.assertEqual(expected_rewards, challenge_rewards)
 
+        # special case for challenge 5
+        expected_rewards = [dec("37.1428571428")] * 28
+        challenge_rewards = compute_challenge_rewards(CHALLENGE_5, [], dec(1040))
+        self.assert_almost_equals_00000001(expected_rewards, challenge_rewards)
+
     def test_compute_competition_rewards(self):
 
         # [0.33, 0.12, 0.6, 0.7, 0.1] should give [0, 0, 66.6666666666, 133.3333333333, 0]
@@ -153,6 +159,11 @@ class Test(TestCase):
         expected_rewards = [dec(0), dec(0), dec(0), dec("66.6666666666"), dec(0), dec("133.3333333333"), dec(0)]
         competition_rewards = compute_competition_rewards(CHALLENGE_1, competition_scores, competition_pool)
         self.assertEqual(expected_rewards, competition_rewards)
+
+        # special case for challenge 5
+        expected_rewards = [dec("111.4285714286")] * 28
+        competition_rewards = compute_competition_rewards(CHALLENGE_5, [], dec(3120))
+        self.assert_almost_equals_00000001(expected_rewards, competition_rewards)
 
     def test_compute_stake_rewards(self):
 
@@ -188,20 +199,26 @@ class Test(TestCase):
         self.assertEqual(dec(0), compute_stake_pool(CHALLENGE_4, 0, 0))
         self.assertEqual(dec(1960), compute_stake_pool(CHALLENGE_4, 0, 49))
         self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_4, 0, 1000))
-        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_1, 0, 1001))
-        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_1, 0, 2000))
+        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_4, 0, 1001))
+        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_4, 0, 2000))
 
-        self.assertEqual(dec(0), compute_stake_pool(CHALLENGE_5, 0, 1000))
-        self.assertEqual(dec(1560), compute_stake_pool(CHALLENGE_5, 39, 1000))
-        self.assertEqual(dec(20000), compute_stake_pool(CHALLENGE_5, 500, 1000))
-        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_1, 1000, 1000))
-        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_1, 1001, 1000))
-        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_1, 2000, 1000))
+        self.assertEqual(dec(0), compute_stake_pool(CHALLENGE_6, 0, 1000))
+        self.assertEqual(dec(1560), compute_stake_pool(CHALLENGE_6, 39, 1000))
+        self.assertEqual(dec(20000), compute_stake_pool(CHALLENGE_6, 500, 1000))
+        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_6, 1000, 1000))
+        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_6, 1001, 1000))
+        self.assertEqual(dec(40000), compute_stake_pool(CHALLENGE_6, 2000, 1000))
 
     def test_compute_pool_surplus(self):
         self.assertEqual(dec(200000), compute_pool_surplus(CHALLENGE_1, 0, 0))
         self.assertEqual(dec(191800), compute_pool_surplus(CHALLENGE_1, 39, 49))
         self.assertEqual(dec(0), compute_pool_surplus(CHALLENGE_1, 1000, 1000))
+
+    # two lists differs at most 1e-10
+    def assert_almost_equals_00000001(self, xs: [Decimal], ys: [Decimal]) -> None:
+        for x, y in zip(xs, ys):
+            self.assertTrue(abs(x - y) <= dec("0.0000000001"))
+        pass
 
 
 if __name__ == "__main__":

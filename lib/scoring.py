@@ -202,6 +202,7 @@ class Scorer (ABC):
     abstract class to compute scores and rewards
     """
 
+    TOTAL_WEEKLY_POOL = dec(200000)
     REWARD_PRECISION = "0.0000000001"  # 10 decimal digits
 
     @abstractmethod
@@ -240,9 +241,10 @@ class Scorer (ABC):
     def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
         pass
 
-    @abstractmethod
     def compute_pool_surplus(self, num_predictors: int, num_stakers: int) -> Decimal:
-        pass
+        return Scorer.TOTAL_WEEKLY_POOL - (self.compute_challenge_pool(num_predictors) +
+                                            self.compute_competition_pool(num_predictors) +
+                                            self.compute_stake_pool(num_predictors, num_stakers))
 
     @staticmethod
     def get(challenge_number: int) -> Scorer:
@@ -255,13 +257,15 @@ class Scorer (ABC):
         """
         if challenge_number < 0:
             raise LookupError()
-        elif challenge_number < 5:
+        elif challenge_number <= 4:
             return ScorerFrom1To4()
+        elif challenge_number == 5:
+            return ScorerAt5()
         else:
-            return ScorerFrom5()
+            return ScorerFrom6()
 
 
-class Scorer1 (Scorer):
+class Scorer1 (Scorer, ABC):
     """
     first implementation of Scorer compliant with
     https://app.gitbook.com/@rocket-capital-investment/s/rci-competition/scoring-and-reward-policy
@@ -269,7 +273,6 @@ class Scorer1 (Scorer):
 
     STDDEV_PENALTY = 0.1
     SKIP_PENALTY = 0.1
-    TOTAL_WEEKLY_POOL = dec(200000)
     UNIT_WEEKLY_POOL = dec(200)  # reach total at 1000 submitters/stakers
     CHALLENGE_REWARD_PERC = dec("0.2")
     COMPETITION_REWARD_PERC = dec("0.6")
@@ -283,7 +286,7 @@ class Scorer1 (Scorer):
     def compute_challenge_scores(self, participants_errors: [float]) -> [float]:
         n = np.count_nonzero(~np.isnan(participants_errors))
         if n == 0:
-            return []
+            return [np.nan] * len(participants_errors)
 
         ranks = mstats.rankdata(np.ma.masked_invalid(participants_errors))
         ranks[ranks == 0] = np.nan
@@ -322,19 +325,14 @@ class Scorer1 (Scorer):
         return Scorer1.__distribute(stakes, stake_pool)
 
     def compute_challenge_pool(self, num_predictors: int) -> Decimal:
-        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC
+        max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC
         pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC * num_predictors
         return min(pool, max_pool)
 
     def compute_competition_pool(self, num_predictors: int) -> Decimal:
-        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC
+        max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC
         pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC * num_predictors
         return min(pool, max_pool)
-
-    def compute_pool_surplus(self, num_predictors: int, num_stakers: int) -> Decimal:
-        return Scorer1.TOTAL_WEEKLY_POOL - (self.compute_challenge_pool(num_predictors) +
-                                            self.compute_competition_pool(num_predictors) +
-                                            self.compute_stake_pool(num_predictors, num_stakers))
 
     @staticmethod
     def __distribute(factors: [Decimal], pool: Decimal) -> [Decimal]:
@@ -347,15 +345,48 @@ class ScorerFrom1To4 (Scorer1):
     """valid from challenge 1 to challenge 4"""
 
     def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
-        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
+        max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
         pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_stakers
         return min(pool, max_pool)
 
 
-class ScorerFrom5 (Scorer1):
+# used only for challenge 5, where a bug in the backoffice software caused all submission to be invalid
+class ScorerAt5 (Scorer1):
+
+    # 28 submissions for challenge 5
+    CHALLENGE_5_PREDICTORS = 28
+
+    # challenge rewards are the same for all; an extra has been directly sent to participant wallets
+    # to give all the same they would have got if they were arrived first
+    def compute_challenge_rewards(self, challenge_scores: [float], challenge_pool: Decimal) -> [Decimal]:
+        return [(challenge_pool / ScorerAt5.CHALLENGE_5_PREDICTORS)
+                .quantize(Decimal(Scorer.REWARD_PRECISION), rounding=ROUND_DOWN).normalize()] \
+               * ScorerAt5.CHALLENGE_5_PREDICTORS
+
+    # competition rewards are the same for all; an extra has been directly sent to participant wallets
+    # to give all the same they would have got if they were arrived first
+    def compute_competition_rewards(self, competition_scores: [float], competition_pool: Decimal) -> [Decimal]:
+        return [(competition_pool / ScorerAt5.CHALLENGE_5_PREDICTORS)
+                .quantize(Decimal(Scorer.REWARD_PRECISION), rounding=ROUND_DOWN).normalize()]\
+               * ScorerAt5.CHALLENGE_5_PREDICTORS
+
+    # override num_predictors, which would be zero because all submissions are invalid
+    def compute_challenge_pool(self, num_predictors: int) -> Decimal:
+        return dec(Scorer1.UNIT_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC * ScorerAt5.CHALLENGE_5_PREDICTORS)
+
+    # override num_predictors, which would be zero because all submissions are invalid
+    def compute_competition_pool(self, num_predictors: int) -> Decimal:
+        return dec(Scorer1.UNIT_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC * ScorerAt5.CHALLENGE_5_PREDICTORS)
+
+    # override num_predictors, which would be zero because all submissions are invalid
+    def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
+        return dec(Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * ScorerAt5.CHALLENGE_5_PREDICTORS)
+
+
+class ScorerFrom6 (Scorer1):
     """valid from challenge 1 to challenge 4"""
 
     def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
-        max_pool = Scorer1.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
+        max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
         pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_predictors
         return min(pool, max_pool)

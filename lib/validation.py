@@ -45,8 +45,13 @@ def compute_error(participant: Participant, force=False) -> float:
     if participant.address not in submitters:
         return np.nan
 
-    # get the predictions, and if not valid return NaN
-    predictions_pairs = get_predictions(participant)
+    # get the predictions, and if it cannot be decrypted of is not valid return NaN
+    try:
+        predictions_pairs = get_predictions(participant)
+    except ValueError as ve:
+        print(f"exception: {str(ve)}")
+        return np.nan
+
     if not scoring.validate_prediction(requested_assets, predictions_pairs):
         return np.nan
 
@@ -275,5 +280,3 @@ def _decrypt_file(input_file: Path, symmetric_key_file: Path, output_file: Path)
     cleartext = cipher.decrypt_and_verify(ciphertext, tag)
     with open(output_file, "wb") as fout:
         fout.write(cleartext)
-
-

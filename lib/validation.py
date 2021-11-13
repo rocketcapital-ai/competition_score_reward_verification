@@ -187,6 +187,14 @@ def get_predictions(participant: Participant) -> [(str, Decimal)]:
 
     # load the file and returns the list of pairs
     df = pd.read_csv(prediction_file, header=None)
+    if (df.iloc[0,0] == 'symbol') & (df.iloc[0,1] == 'prediction'):
+        df = df.iloc[1:]
+
+    # re-read skipping header if present
+    has_header = isinstance(df.iloc[0,1], str)
+    if has_header:
+        df = pd.read_csv(prediction_file)
+
     return df.to_records(index=False)
 
 

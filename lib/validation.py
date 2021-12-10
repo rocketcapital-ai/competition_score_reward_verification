@@ -48,8 +48,8 @@ def compute_error(participant: Participant, force=False) -> float:
     # get the predictions, and if it cannot be decrypted of is not valid return NaN
     try:
         predictions_pairs = get_predictions(participant)
-    except ValueError as ve:
-        print(f"exception: {str(ve)}")
+    except (ValueError, AssertionError) as e:
+        print(f"exception: {str(e)}")
         return np.nan
 
     if not scoring.validate_prediction(requested_assets, predictions_pairs):
@@ -172,28 +172,29 @@ def get_predictions(participant: Participant) -> [(str, Decimal)]:
     _decrypt_file(encrypted_originator_file, symmetric_key_file, originator_file)
     with open(originator_file, "r") as fin:
         originator_address = fin.read().strip()
-    assert originator_address[2:].lower() == participant.address.lower()
+    assert originator_address[2:].lower() == participant.address.lower(),\
+        f"originator != participant ({submission_zip_file.name})"
 
     # check and decrypt the submission file
     encrypted_prediction_filenames = [filename for filename in os.listdir(submission_dir)
                                       if submission_dir.joinpath(filename).is_file()
                                       and submission_dir.joinpath(filename).match("*.bin")
                                       and filename not in ["originator.bin", "_symmetric_key.bin"]]
-    assert len(encrypted_prediction_filenames) == 1
+    assert len(encrypted_prediction_filenames) == 1, f"multiple prediction files ({submission_zip_file.name})"
 
     encrypted_prediction_file = submission_dir.joinpath(encrypted_prediction_filenames[0])
     prediction_file = submission_dir.joinpath("_predictions.csv")
     _decrypt_file(encrypted_prediction_file, symmetric_key_file, prediction_file)
 
-    # load the file and returns the list of pairs
+    # load the file
     df = pd.read_csv(prediction_file, header=None)
-    if (df.iloc[0,0] == 'symbol') & (df.iloc[0,1] == 'prediction'):
-        df = df.iloc[1:]
 
     # re-read skipping header if present
     has_header = isinstance(df.iloc[0,1], str)
     if has_header:
         df = pd.read_csv(prediction_file)
+
+    assert len(df.columns) == 2, f"too many columns ({submission_zip_file.name})"
 
     return df.to_records(index=False)
 

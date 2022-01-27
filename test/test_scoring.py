@@ -2,10 +2,13 @@ from unittest import TestCase, main
 from lib.scoring import *
 import scipy.stats.mstats as mstats
 
+# meaningless constants to improve test readability
 CHALLENGE_1 = 1
 CHALLENGE_4 = 4
 CHALLENGE_5 = 5
 CHALLENGE_6 = 6
+CHALLENGE_17 = 17
+CHALLENGE_18 = 18
 
 
 class Test(TestCase):
@@ -35,6 +38,16 @@ class Test(TestCase):
         # this prediction is valid
         prediction = [("AAPL", Decimal("0.1")), ("GOOG", Decimal("0.2"))]
         self.assertTrue(validate_prediction(assets, prediction))
+
+    def test_validate_prediction_with_repeated_assets(self):
+
+        # redundant prediction is not valid
+        prediction = [("AAPL", Decimal("0.1")), ("GOOG", Decimal("0.2")), ("AAPL", Decimal("0.3"))]
+        self.assertFalse(validate_prediction(["AAPL", "GOOG"], prediction))
+
+        # this prediction is not valid due to repeated assets
+        prediction = [("AAPL", Decimal("0.1")), ("GOOG", Decimal("0.2"))]
+        self.assertFalse(validate_prediction(["AAPL", "GOOG", "AAPL"], prediction))
 
     def test_compute_challenge_error(self):
         # maximum RMSE with base values in [0, 1] is 1
@@ -80,50 +93,117 @@ class Test(TestCase):
                 self.assertAlmostEqual(x, y)
 
     def test_compute_competition_score(self):
+        self._test_compute_competition_score_up_to_17(CHALLENGE_1)
+        self._test_compute_competition_score_up_to_17(CHALLENGE_17)
+        self._test_compute_competition_score_from_18(CHALLENGE_18);
+
+    def _test_compute_competition_score_up_to_17(self, challenge_number):
+        scorer = Scorer.get(challenge_number);
 
         # competition score with no submissions is NaN
-        self.assertTrue(math.isnan(compute_competition_score(CHALLENGE_1, [])))
+        self.assertTrue(math.isnan(compute_competition_score(challenge_number, [])))
 
         # competition score with only NaN submissions is NaN
         self.assertTrue(
-            math.isnan(compute_competition_score(CHALLENGE_1, [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan])))
+            math.isnan(compute_competition_score(challenge_number, [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan])))
 
         # competition score with all identical submissions is the last value
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.6, 0.6, 0.6, 0.6, 0.6, 0.6]), 0.6)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6, 0.6, 0.6, 0.6]), 0.6)
 
         # competition score with 4 identical submissions a after a different value in the past is the last value
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.2, 0.2, 0.6, 0.6, 0.6, 0.6]), 0.6)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.2, 0.2, 0.6, 0.6, 0.6, 0.6]), 0.6)
 
-        # competition score with just 4 identical submissions is the last value
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.6, 0.6, 0.6, 0.6]), 0.6)
+        # competition score with 4 identical submissions is the last value
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6, 0.6]), 0.6)
 
-        # competition score with 3 identical submissions has a penalty of SKIP_PENALTY * 1/3
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.6, np.nan, 0.6, 0.6]),
-                               0.6 - Scorer1.SKIP_PENALTY / 3)
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.6, 0.6, 0.6]),
-                               0.6 - Scorer1.SKIP_PENALTY / 3)
+        # competition score with just 3 identical submissions has a penalty of SKIP_PENALTY * 1/3
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, np.nan, 0.6, 0.6]),
+                               0.6 - scorer.get_skip_penalty() / 3)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6]),
+                               0.6 - scorer.get_skip_penalty() / 3)
 
-        # competition score with 2 identical submissions has a penalty of SKIP_PENALTY * 2/3
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.6, np.nan, 0.6, np.nan]),
-                               0.6 - Scorer1.SKIP_PENALTY * 2 / 3)
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0.6, 0.6]),
-                               0.6 - Scorer1.SKIP_PENALTY * 2 / 3)
+        # competition score with just 2 identical submissions has a penalty of SKIP_PENALTY * 2/3
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, np.nan, 0.6, np.nan]),
+                               0.6 - scorer.get_skip_penalty() * 2 / 3)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6]),
+                               0.6 - scorer.get_skip_penalty() * 2 / 3)
 
-        # competition score with 1 submissions has a penalty of SKIP_PENALTY
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [np.nan, np.nan, 0.6, np.nan]),
-                               0.6 - Scorer1.SKIP_PENALTY)
+        # competition score with just 1 submissions has a penalty of SKIP_PENALTY
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [np.nan, np.nan, 0.6, np.nan]),
+                               0.6 - scorer.get_skip_penalty())
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6]),
+                               0.6 - scorer.get_skip_penalty())
 
         # competition with 4 scores with maximum b factor
-        self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, [0, 1, 0, 1]),
-                               0.5 - Scorer1.STDDEV_PENALTY)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0, 1, 0, 1]),
+                               0.5 - scorer.get_std_dev_penalty())
 
         # competition score with 4 submissions is average minus STDDEV_PENALTY * stddev
         for _ in range(100):
             challenge_scores = np.random.random_sample(10)
             a = challenge_scores[-4:].mean()
             b = challenge_scores[-4:].std()
-            competition_score = a - Scorer1.STDDEV_PENALTY * 2 * b
-            self.assertAlmostEqual(compute_competition_score(CHALLENGE_1, challenge_scores), competition_score)
+            competition_score = a - scorer.get_std_dev_penalty() * 2 * b
+            self.assertAlmostEqual(compute_competition_score(challenge_number, challenge_scores), competition_score)
+
+    # test new parameters: stddev = 0.2, skip = 0.5, window_size = 8
+    # note: this could be merged with the _test_compute_competition_score()
+    # but it is left duplicated for sake of simplicity
+    def _test_compute_competition_score_from_18(self, challenge_number):
+        scorer = Scorer.get(challenge_number);
+
+        # competition score with no submissions is NaN
+        self.assertTrue(math.isnan(compute_competition_score(challenge_number, [])))
+
+        # competition score with 12 NaN submissions is NaN
+        self.assertTrue(
+            math.isnan(compute_competition_score(challenge_number, [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan,
+                                                                    np.nan, np.nan, np.nan, np.nan, np.nan, np.nan])))
+
+        # competition score with 12 identical submissions is the last value
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6, 0.6, 0.6, 0.6,
+                                                                            0.6, 0.6, 0.6, 0.6, 0.6, 0.6]), 0.6)
+
+        # competition score with 8 identical submissions after a different value in the past is the last value
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.2, 0.2, 0.2, 0.2, 0.6, 0.6,
+                                                                            0.6, 0.6, 0.6, 0.6, 0.6, 0.6]), 0.6)
+
+        # competition score with just 8 identical submissions is the last value
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6, 0.6,
+                                                                            0.6, 0.6, 0.6, 0.6]), 0.6)
+
+        # competition score with just 7 identical submissions has a penalty of SKIP_PENALTY * 1/7
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, np.nan, 0.6, 0.6,
+                                                                            0.6, 0.6, 0.6, 0.6]),
+                               0.6 - scorer.get_skip_penalty() / 7)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6]),
+                               0.6 - scorer.get_skip_penalty() / 7)
+
+        # competition score with just 4 identical submissions has a penalty of SKIP_PENALTY * 4/7
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, np.nan, 0.6, np.nan,
+                                                                            0.6, np.nan, 0.6, np.nan]),
+                               0.6 - scorer.get_skip_penalty() * 4 / 7)
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6, 0.6, 0.6, 0.6]),
+                               0.6 - scorer.get_skip_penalty() * 4 / 7)
+
+        # competition score with just 1 submission has a penalty of SKIP_PENALTY
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [np.nan, np.nan, np.nan, 0.6,
+                                                                            np.nan, np.nan, np.nan, np.nan]),
+                               0.6 - scorer.get_skip_penalty())
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0.6]),
+                               0.6 - scorer.get_skip_penalty())
+
+        # competition with 8 scores with maximum b factor
+        self.assertAlmostEqual(compute_competition_score(challenge_number, [0, 1, 0, 1, 0, 1, 0, 1]),
+                               0.5 - scorer.get_std_dev_penalty())
+
+        # competition score with 4 submissions is average minus STDDEV_PENALTY * stddev
+        for _ in range(100):
+            challenge_scores = np.random.random_sample(10)
+            a = challenge_scores[-8:].mean()
+            b = challenge_scores[-8:].std()
+            competition_score = a - scorer.get_std_dev_penalty() * 2 * b
+            self.assertAlmostEqual(compute_competition_score(challenge_number, challenge_scores), competition_score)
 
     def test_compute_challenge_rewards(self):
 

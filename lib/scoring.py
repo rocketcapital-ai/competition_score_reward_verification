@@ -36,6 +36,10 @@ def validate_prediction(assets: [str], predictions: [(str, Decimal)]) -> bool:
     if len(assets) != len(predictions):
         return False
 
+    # this can only happen when assets are repeated in the dataset (should happen!)
+    if len(set(assets)) != len(assets):
+        return False
+
     # check if there is any NaN in the predicted values
     return not any((math.isnan(value) for asset, value in predictions))
 
@@ -243,8 +247,20 @@ class Scorer (ABC):
 
     def compute_pool_surplus(self, num_predictors: int, num_stakers: int) -> Decimal:
         return Scorer.TOTAL_WEEKLY_POOL - (self.compute_challenge_pool(num_predictors) +
-                                            self.compute_competition_pool(num_predictors) +
-                                            self.compute_stake_pool(num_predictors, num_stakers))
+                                           self.compute_competition_pool(num_predictors) +
+                                           self.compute_stake_pool(num_predictors, num_stakers))
+
+    @abstractmethod
+    def get_std_dev_penalty(self):
+        pass
+
+    @abstractmethod
+    def get_skip_penalty(self):
+        pass
+
+    @abstractmethod
+    def get_window_size(self):
+        pass
 
     @staticmethod
     def get(challenge_number: int) -> Scorer:
@@ -261,8 +277,10 @@ class Scorer (ABC):
             return ScorerFrom1To4()
         elif challenge_number == 5:
             return ScorerAt5()
+        elif challenge_number <= 17:
+            return ScorerFrom6To17()
         else:
-            return ScorerFrom6()
+            return ScorerFrom18()
 
 
 class Scorer1 (Scorer, ABC):
@@ -271,8 +289,6 @@ class Scorer1 (Scorer, ABC):
     https://app.gitbook.com/@rocket-capital-investment/s/rci-competition/scoring-and-reward-policy
     """
 
-    STDDEV_PENALTY = 0.1
-    SKIP_PENALTY = 0.1
     UNIT_WEEKLY_POOL = dec(200)  # reach total at 1000 submitters/stakers
     CHALLENGE_REWARD_PERC = dec("0.2")
     COMPETITION_REWARD_PERC = dec("0.6")
@@ -293,16 +309,17 @@ class Scorer1 (Scorer, ABC):
         return [(n - r) / (n - 1) for r in ranks]
 
     def compute_competition_score(self, challenge_scores: [float]) -> float:
-        scores = challenge_scores[-4:]
-        num_skips = 4 - len(scores)
+        window_size = self.get_window_size()
+        scores = challenge_scores[-window_size:]
+        num_skips = window_size - len(scores)
         for score in scores:
             if math.isnan(score):
                 num_skips = num_skips + 1
-        if num_skips == 4:
+        if num_skips == window_size:
             return np.nan
         a = np.nanmean(scores)
-        b = Scorer1.STDDEV_PENALTY * 2 * np.nanstd(scores)
-        c = Scorer1.SKIP_PENALTY * num_skips / 3
+        b = self.get_std_dev_penalty() * 2 * np.nanstd(scores)
+        c = self.get_skip_penalty() * num_skips / (window_size - 1)
         return max(a - (b + c), 0)
 
     def compute_challenge_rewards(self, challenge_scores: [float], challenge_pool: Decimal) -> [Decimal]:
@@ -334,6 +351,11 @@ class Scorer1 (Scorer, ABC):
         pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.COMPETITION_REWARD_PERC * num_predictors
         return min(pool, max_pool)
 
+    def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
+        max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
+        pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_predictors
+        return min(pool, max_pool)
+
     @staticmethod
     def __distribute(factors: [Decimal], pool: Decimal) -> [Decimal]:
         total = sum(factors)
@@ -344,14 +366,28 @@ class Scorer1 (Scorer, ABC):
 class ScorerFrom1To4 (Scorer1):
     """valid from challenge 1 to challenge 4"""
 
+    STDDEV_PENALTY = 0.1
+    SKIP_PENALTY = 0.1
+    WINDOW_SIZE = 4
+
     def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
         max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
         pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_stakers
         return min(pool, max_pool)
 
+    def get_std_dev_penalty(self):
+        return self.STDDEV_PENALTY
+
+    def get_skip_penalty(self):
+        return self.SKIP_PENALTY
+
+    def get_window_size(self):
+        return self.WINDOW_SIZE
+
 
 # used only for challenge 5, where a bug in the backoffice software caused all submission to be invalid
 class ScorerAt5 (Scorer1):
+    """valid just for challenge 5"""
 
     # 28 submissions for challenge 5
     CHALLENGE_5_PREDICTORS = 28
@@ -382,11 +418,45 @@ class ScorerAt5 (Scorer1):
     def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
         return dec(Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * ScorerAt5.CHALLENGE_5_PREDICTORS)
 
+    def get_std_dev_penalty(self):
+        pass
 
-class ScorerFrom6 (Scorer1):
-    """valid from challenge 1 to challenge 4"""
+    def get_skip_penalty(self):
+        pass
 
-    def compute_stake_pool(self, num_predictors: int, num_stakers: int) -> Decimal:
-        max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC
-        pool = Scorer1.UNIT_WEEKLY_POOL * Scorer1.STAKE_REWARD_PERC * num_predictors
-        return min(pool, max_pool)
+    def get_window_size(self):
+        pass
+
+
+class ScorerFrom6To17 (Scorer1):
+    """valid from challenge 6 to challenge X"""
+
+    STDDEV_PENALTY = 0.1
+    SKIP_PENALTY = 0.1
+    WINDOW_SIZE = 4
+
+    def get_std_dev_penalty(self):
+        return self.STDDEV_PENALTY
+
+    def get_skip_penalty(self):
+        return self.SKIP_PENALTY
+
+    def get_window_size(self):
+        return self.WINDOW_SIZE
+
+
+class ScorerFrom18 (Scorer1):
+    """valid from challenge 18 on"""
+
+    STDDEV_PENALTY = 0.2
+    SKIP_PENALTY = 0.5
+    WINDOW_SIZE = 8
+
+    def get_std_dev_penalty(self):
+        return self.STDDEV_PENALTY
+
+    def get_skip_penalty(self):
+        return self.SKIP_PENALTY
+
+    def get_window_size(self):
+        return self.WINDOW_SIZE

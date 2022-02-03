@@ -230,20 +230,37 @@ class Test(TestCase):
         # [0.33, 0.12, 0.6, 0.7, 0.1] should give [0, 0, 66.6666666666, 133.3333333333, 0]
         competition_pool = Decimal("200");
         competition_scores = [0.33, 0.12, 0.6, 0.7, 0.1]
+        challenge_scores = [0.5, 0.5, 0.5, 0.5, 0.5]
         expected_rewards = [dec(0), dec(0), dec("66.6666666666"), dec("133.3333333333"), dec(0)]
-        competition_rewards = compute_competition_rewards(CHALLENGE_1, competition_scores, competition_pool)
+        competition_rewards = compute_competition_rewards(CHALLENGE_1, competition_scores,
+                                                          challenge_scores, competition_pool)
         self.assertEqual(expected_rewards, competition_rewards)
 
         # same with two nans
         competition_scores = [np.nan, 0.33, 0.12, 0.6, np.nan, 0.7, 0.1]
+        challenge_scores = [0.5, 0.5, 0.5, 0.5, 0.5]
         expected_rewards = [dec(0), dec(0), dec(0), dec("66.6666666666"), dec(0), dec("133.3333333333"), dec(0)]
-        competition_rewards = compute_competition_rewards(CHALLENGE_1, competition_scores, competition_pool)
+        competition_rewards = compute_competition_rewards(CHALLENGE_1, competition_scores,
+                                                          challenge_scores, competition_pool)
         self.assertEqual(expected_rewards, competition_rewards)
 
         # special case for challenge 5
         expected_rewards = [dec("111.4285714286")] * 28
-        competition_rewards = compute_competition_rewards(CHALLENGE_5, [], dec(3120))
+        competition_rewards = compute_competition_rewards(CHALLENGE_5, [], [], dec(3120))
         self.assert_almost_equals_00000001(expected_rewards, competition_rewards)
+
+    def test_compute_competition_rewards_from_18(self):
+
+        # [*0.5,   0.33, 0.12, 0.6, *0.5,   0.7, 0.1] with two nans in the challenge score
+        # [np.nan, 0.5,  0.5,  0.5, np.nan, 0.5, 0.5]
+        # should give the same rewards as [np.nan, 0.33, 0.12, 0.6, np.nan, 0.7, 0.1]
+        competition_pool = Decimal("200");
+        competition_scores = [0.5,    0.33, 0.12, 0.6, 0.5,    0.7, 0.1]
+        challenge_scores =   [np.nan, 0.5,  0.5,  0.5, np.nan, 0.5, 0.5]
+        expected_rewards = [dec(0), dec(0), dec(0), dec("66.6666666666"), dec(0), dec("133.3333333333"), dec(0)]
+        competition_rewards = compute_competition_rewards(CHALLENGE_18, competition_scores,
+                                                          challenge_scores, competition_pool)
+        self.assertEqual(expected_rewards, competition_rewards)
 
     def test_compute_stake_rewards(self):
 

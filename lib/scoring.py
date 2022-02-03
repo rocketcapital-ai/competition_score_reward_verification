@@ -105,20 +105,22 @@ def compute_challenge_rewards(challenge_number: int, challenge_scores: [float], 
 
 
 def compute_competition_rewards(challenge_number: int, competition_scores: [float],
-                                competition_pool: Decimal) -> [Decimal]:
+                                challenge_scores: [float], competition_pool: Decimal) -> [Decimal]:
     """ computes the competition rewards of all participants
 
     :param challenge_number: int
         the challenge number
     :param competition_scores: [float]
         the competition scores of all participants
+    :param challenge_scores: [float]
+        the challenge scores of all participants
     :param competition_pool: Decimal
         the total sum to be paid for competition rewards
     :return: [Decimal]
         the competition rewards of all participants
     """
     scorer = Scorer.get(challenge_number)
-    return scorer.compute_competition_rewards(competition_scores, competition_pool)
+    return scorer.compute_competition_rewards(competition_scores, challenge_scores, competition_pool)
 
 
 def compute_stake_rewards(challenge_number: int, stakes: [Decimal], stake_pool: Decimal) -> [Decimal]:
@@ -197,6 +199,11 @@ def compute_pool_surplus(challenge_number: int, num_predictors: int, num_stakers
     return scorer.compute_pool_surplus(num_predictors, num_stakers)
 
 
+def get_window_size(challenge_number):
+    scorer = Scorer.get(challenge_number)
+    return scorer.get_window_size()
+
+
 def dec(x):
     return Decimal(x)
 
@@ -226,7 +233,8 @@ class Scorer (ABC):
         pass
 
     @abstractmethod
-    def compute_competition_rewards(self, competition_scores: [float], competition_pool: Decimal) -> [Decimal]:
+    def compute_competition_rewards(self, competition_scores: [float],
+                                    challenge_scores: [float], competition_pool: Decimal) -> [Decimal]:
         pass
 
     @abstractmethod
@@ -325,9 +333,10 @@ class Scorer1 (Scorer, ABC):
     def compute_challenge_rewards(self, challenge_scores: [float], challenge_pool: Decimal) -> [Decimal]:
         challenge_scores = [score if not np.isnan(score) else 0 for score in challenge_scores]
         factors = [max(dec(score) - dec("0.25"), dec(0)) for score in challenge_scores]
-        return Scorer1.__distribute(factors, challenge_pool)
+        return Scorer1._distribute(factors, challenge_pool)
 
-    def compute_competition_rewards(self, competition_scores: [float], competition_pool: Decimal) -> [Decimal]:
+    def compute_competition_rewards(self, competition_scores: [float],
+                                    _challenge_scores: [float], competition_pool: Decimal) -> [Decimal]:
         n = np.count_nonzero(~np.isnan(competition_scores))
         if n == 0:
             return [0] * len(competition_scores)
@@ -336,10 +345,10 @@ class Scorer1 (Scorer, ABC):
         ranks[ranks == 0] = np.nan
         ranks = [(r - 1) / (n - 1) if not np.isnan(r) else 0 for r in ranks]
         factors = [max(dec(rank) - dec("0.5"), dec(0)) for rank in ranks]
-        return Scorer1.__distribute(factors, competition_pool)
+        return Scorer1._distribute(factors, competition_pool)
 
     def compute_stake_rewards(self, stakes: [Decimal], stake_pool: Decimal) -> [Decimal]:
-        return Scorer1.__distribute(stakes, stake_pool)
+        return Scorer1._distribute(stakes, stake_pool)
 
     def compute_challenge_pool(self, num_predictors: int) -> Decimal:
         max_pool = Scorer.TOTAL_WEEKLY_POOL * Scorer1.CHALLENGE_REWARD_PERC
@@ -357,7 +366,7 @@ class Scorer1 (Scorer, ABC):
         return min(pool, max_pool)
 
     @staticmethod
-    def __distribute(factors: [Decimal], pool: Decimal) -> [Decimal]:
+    def _distribute(factors: [Decimal], pool: Decimal) -> [Decimal]:
         total = sum(factors)
         return [((pool * factor) / total).quantize(Decimal(Scorer.REWARD_PRECISION), rounding=ROUND_DOWN).normalize()
                 for factor in factors]
@@ -401,7 +410,8 @@ class ScorerAt5 (Scorer1):
 
     # competition rewards are the same for all; an extra has been directly sent to participant wallets
     # to give all the same they would have got if they were arrived first
-    def compute_competition_rewards(self, competition_scores: [float], competition_pool: Decimal) -> [Decimal]:
+    def compute_competition_rewards(self, competition_scores: [float],
+                                    challenge_scores: [float], competition_pool: Decimal) -> [Decimal]:
         return [(competition_pool / ScorerAt5.CHALLENGE_5_PREDICTORS)
                 .quantize(Decimal(Scorer.REWARD_PRECISION), rounding=ROUND_DOWN).normalize()]\
                * ScorerAt5.CHALLENGE_5_PREDICTORS
@@ -460,3 +470,12 @@ class ScorerFrom18 (Scorer1):
 
     def get_window_size(self):
         return self.WINDOW_SIZE
+
+    def compute_competition_rewards(self, competition_scores: [float],
+                                    challenge_scores: [float], competition_pool: Decimal) -> [Decimal]:
+
+        # adjust competition scores to be nan if challenge score is nan, i.e., if submission is missing or invalid
+        cs = [np.nan if np.isnan(ch) else co for co, ch in zip(competition_scores, challenge_scores)]
+
+        # use default method on adjusted competition scores
+        return Scorer1.compute_competition_rewards(self, cs, challenge_scores, competition_pool)

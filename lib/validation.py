@@ -104,11 +104,13 @@ def compute_competition_score(participant: Participant, force=False) -> float:
     challenge = participant.challenge
     competition = challenge.competition
 
-    # gets last 4 challenge scores of a submitter and compute the competition score
+    # gets last challenge scores of a submitter according to challenge window size
+    # and compute the competition score
+    window_size = scoring.get_window_size(challenge.number)
+    first_challenge = max(1, challenge.number - window_size + 1)
     challenge_scores = [compute_challenge_score(challenge.get_participant(participant.address), force)
                         for challenge in [competition.get_challenge(challenge_number)
-                                          for challenge_number in range(max(1, challenge.number - 3),
-                                                                        challenge.number + 1)]]
+                                          for challenge_number in range(first_challenge, challenge.number + 1)]]
     return scoring.compute_competition_score(challenge.number, challenge_scores)
 
 
@@ -128,8 +130,10 @@ def compute_competition_rewards(challenge: Challenge) -> {str, Decimal}:
 
     competition_pool = challenge.get_competition_pool()
     addresses = [staker.address for staker in challenge.get_all_participants()]
-    scores = [compute_competition_score(participant) for participant in challenge.get_all_participants()]
-    rewards = scoring.compute_competition_rewards(challenge.number, scores, competition_pool)
+    challenge_scores = [compute_challenge_score(participant) for participant in challenge.get_all_participants()]
+    competition_scores = [compute_competition_score(participant) for participant in challenge.get_all_participants()]
+    rewards = scoring.compute_competition_rewards(challenge.number, competition_scores,
+                                                  challenge_scores, competition_pool)
     return dict(zip(addresses, rewards))
 
 

@@ -60,7 +60,7 @@ def compute_error(participant: Participant, force=False) -> float:
     predictions = [predictions_by_asset[asset] for asset in valued_assets]
 
     # return error computed from predictions and correct values
-    return scoring.compute_challenge_error(challenge.number, predictions, [value for _, value in values])
+    return scoring.compute_raw_score(challenge.number, predictions, [value for _, value in values])
 
 
 def compute_challenge_scores(challenge: Challenge, force=False) -> {str: float}:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import math
+import scipy.stats as stats
 import scipy.stats.mstats as mstats
 
 from abc import ABC, abstractmethod
@@ -44,8 +45,8 @@ def validate_prediction(assets: [str], predictions: [(str, Decimal)]) -> bool:
     return not any((math.isnan(value) for asset, value in predictions))
 
 
-def compute_challenge_error(challenge_number: int, predictions: [Decimal], assets_values: [Decimal]) -> float:
-    """computes the challenge error of a participant
+def compute_raw_score(challenge_number: int, predictions: [Decimal], assets_values: [Decimal]) -> float:
+    """computes the raw score of a participant
 
     :param challenge_number: int
         the challenge number
@@ -54,24 +55,24 @@ def compute_challenge_error(challenge_number: int, predictions: [Decimal], asset
     :param assets_values:
         the list of correct values, ordered by assets
     :return: float
-        the Root Mean Square Error between predictions and values
+        the raw score between predictions and values
     """
     scorer = Scorer.get(challenge_number)
-    return scorer.compute_challenge_error(predictions, assets_values)
+    return scorer.compute_raw_score(predictions, assets_values)
 
 
-def compute_challenge_scores(challenge_number: int, participants_errors: [float]) -> [float]:
+def compute_challenge_scores(challenge_number: int, raw_scores: [float]) -> [float]:
     """computes the challenge scores of all participants to a challenge
 
     :param challenge_number: int
         the challenge number
-    :param participants_errors: [float]
-        the list of errors of all participants
+    :param raw_scores: [float]
+        the list of raw scores of all participants
     :return: [float]
         the list of challenge scores of all participants
     """
     scorer = Scorer.get(challenge_number)
-    return scorer.compute_challenge_scores(participants_errors)
+    return scorer.compute_challenge_scores(raw_scores)
 
 
 def compute_competition_score(challenge_number: int, challenge_scores: [float]) -> float:
@@ -217,11 +218,11 @@ class Scorer (ABC):
     REWARD_PRECISION = "0.0000000001"  # 10 decimal digits
 
     @abstractmethod
-    def compute_challenge_error(self, predictions: [Decimal], assets_values: [Decimal]) -> float:
+    def compute_raw_score(self, predictions: [Decimal], assets_values: [Decimal]) -> float:
         pass
 
     @abstractmethod
-    def compute_challenge_scores(self, participants_errors: [float]) -> [float]:
+    def compute_challenge_scores(self, raw_scores: [float]) -> [float]:
         pass
 
     @abstractmethod
@@ -287,8 +288,10 @@ class Scorer (ABC):
             return ScorerAt5()
         elif challenge_number <= 17:
             return ScorerFrom6To17()
+        elif challenge_number <= 26:
+            return ScorerFrom18To26()
         else:
-            return ScorerFrom18()
+            return ScorerFrom27()
 
 
 class Scorer1 (Scorer, ABC):
@@ -302,17 +305,17 @@ class Scorer1 (Scorer, ABC):
     COMPETITION_REWARD_PERC = dec("0.6")
     STAKE_REWARD_PERC = dec("0.2")
 
-    def compute_challenge_error(self, predictions: [Decimal], assets_values: [Decimal]) -> float:
+    def compute_raw_score(self, predictions: [Decimal], assets_values: [Decimal]) -> float:
         float_predictions = np.array(predictions, dtype=float)
         float_assets_values = np.array(assets_values, dtype=float)
         return mean_squared_error(float_predictions, float_assets_values, squared=False)
 
-    def compute_challenge_scores(self, participants_errors: [float]) -> [float]:
-        n = np.count_nonzero(~np.isnan(participants_errors))
+    def compute_challenge_scores(self, raw_scores: [float]) -> [float]:
+        n = np.count_nonzero(~np.isnan(raw_scores))
         if n == 0:
-            return [np.nan] * len(participants_errors)
+            return [np.nan] * len(raw_scores)
 
-        ranks = mstats.rankdata(np.ma.masked_invalid(participants_errors))
+        ranks = mstats.rankdata(np.ma.masked_invalid(raw_scores))
         ranks[ranks == 0] = np.nan
         return [(n - r) / (n - 1) for r in ranks]
 
@@ -455,12 +458,52 @@ class ScorerFrom6To17 (Scorer1):
         return self.WINDOW_SIZE
 
 
-class ScorerFrom18 (Scorer1):
-    """valid from challenge 18 on"""
+class ScorerFrom18To26 (Scorer1):
+    """valid from challenge 18 to 26"""
 
     STDDEV_PENALTY = 0.2
     SKIP_PENALTY = 0.5
     WINDOW_SIZE = 8
+
+    def get_std_dev_penalty(self):
+        return self.STDDEV_PENALTY
+
+    def get_skip_penalty(self):
+        return self.SKIP_PENALTY
+
+    def get_window_size(self):
+        return self.WINDOW_SIZE
+
+    def compute_competition_rewards(self, competition_scores: [float],
+                                    challenge_scores: [float], competition_pool: Decimal) -> [Decimal]:
+
+        # adjust competition scores to be nan if challenge score is nan, i.e., if submission is missing or invalid
+        cs = [np.nan if np.isnan(ch) else co for co, ch in zip(competition_scores, challenge_scores)]
+
+        # use default method on adjusted competition scores
+        return Scorer1.compute_competition_rewards(self, cs, challenge_scores, competition_pool)
+
+
+class ScorerFrom27 (Scorer1):
+    """valid from challenge 27 on"""
+
+    STDDEV_PENALTY = 0.2
+    SKIP_PENALTY = 0.5
+    WINDOW_SIZE = 8
+
+    def compute_raw_score(self, predictions: [Decimal], assets_values: [Decimal]) -> float:
+        float_predictions = np.array(predictions, dtype=float)
+        float_assets_values = np.array(assets_values, dtype=float)
+        return stats.spearmanr(float_predictions, float_assets_values)[0]
+
+    def compute_challenge_scores(self, raw_scores: [float]) -> [float]:
+        n = np.count_nonzero(~np.isnan(raw_scores))
+        if n == 0:
+            return [np.nan] * len(raw_scores)
+
+        ranks = mstats.rankdata(np.ma.masked_invalid(raw_scores))
+        ranks[ranks == 0] = np.nan
+        return [(r - 1) / (n - 1) for r in ranks]
 
     def get_std_dev_penalty(self):
         return self.STDDEV_PENALTY
